@@ -1,14 +1,12 @@
 package main
 
 import (
-	"encoding/base64"
-	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
 
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/go-chi/chi"
 	"github.com/gorilla/websocket"
@@ -55,31 +53,25 @@ type StopMessage struct {
 }
 
 func main() {
-	awsConfig, err := config.LoadDefaultConfig()
-
-	if err != nil {
-		log.Println("Error loading AWS config:", err)
-		return
-	}
-
-	s3Client := s3.NewFromConfig(awsConfig)
+	sess := session.Must(session.NewSession())
 
 	router := chi.NewRouter()
 
-	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Goodbye, World!"))
+	router.Get("/version", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("Handling /version")
+		message := "Thump. Thump thump. Thump. Version " + os.Getenv("KAIZER_VERSION")
+		log.Println(message)
+		w.Write([]byte(message))
 	})
 
 	router.Post("/answer", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("Handling /answer")
 		stream := `
 <Response>
-
     <Connect>
-        <Stream name="Example Audio Stream" url="wss://0de3-98-176-235-185.ngrok-free.app/stream" />
+        <Stream name="Example Audio Stream" url="wss://talktome.cloud/stream" />
     </Connect>
-
-    <Say>The stream has started.</Say>
-
+    <Say>Thanks for calling, your log has been saved.</Say>
 </Response>`
 
 		w.Header().Set("Content-Type", "application/xml")
@@ -88,19 +80,7 @@ func main() {
 	})
 
 	router.Get("/stream", func(w http.ResponseWriter, r *http.Request) {
-		// reader, writer := io.Pipe()
-
-		uploader := s3manager.NewUploader(s3Client)
-
-		ofile, err := os.Create("output.raw")
-
-		if err != nil {
-			log.Println("Error creating output file:", err)
-			return
-		}
-
-		defer ofile.Close()
-
+		log.Println("Handling /stream")
 		// Upgrade the HTTP request to a WebSocket connection.
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -109,63 +89,102 @@ func main() {
 		}
 		defer ws.Close() // Ensure the connection is closed when the function exits
 
-		log.Println("Client connected")
+		log.Println("Connection upgraded to WebSocket")
 
-		// Read messages in a loop and log them
-		for {
-			var raw map[string]interface{}
+		reader, writer := io.Pipe()
+		// Do we need to close the reader and the writer?
 
-			_, bytes, err := ws.ReadMessage()
-			if err != nil {
-				log.Println("Read error:", err)
-				break
-			}
+		defer writer.Close()
 
-			err = json.Unmarshal(bytes, &raw)
+		log.Println("Creating S3 uploader")
 
-			if err != nil {
-				log.Println("Unmarshal error:", err)
-				break
-			}
+		uploader := s3manager.NewUploader(sess)
 
-			if raw["event"] == "start" {
-				log.Println("Start messaging received, processing...")
+		bucket := "kaizer"
+		key := "test"
 
-				log.Println("Done processing start message")
-			} else if raw["event"] == "media" {
-				log.Println("Media message received, processing...")
+		_, err = uploader.Upload(&s3manager.UploadInput{
+			Body:   reader,
+			Bucket: &bucket,
+			Key:    &key,
+		})
 
-				var msg MediaMessage
-				err := json.Unmarshal(bytes, &msg)
-
-				if err != nil {
-					log.Println("Unmarshal error:", err)
-					break
-				}
-
-				data, err := base64.StdEncoding.DecodeString(msg.Media.Payload)
-
-				if err != nil {
-					log.Println("Base64 decode error:", err)
-					break
-				}
-
-				written, err := ofile.Write(data)
-
-				if err != nil {
-					log.Println("Write error:", err)
-					break
-				}
-
-				// phone-number/yyyy-mm-dd-hh-mm-ss-mmm/n.raw
-
-				log.Println("Wrote", written, "bytes to file")
-				log.Println("Done processing media message")
-			} else if raw["event"] == "stop" {
-				log.Println("Stop message received")
-				log.Println("Done processing stop message")
-			}
+		if err != nil {
+			log.Println("Error uploading to S3:", err)
+			return
 		}
+
+		log.Println("Writing to S3")
+
+		_, err = writer.Write([]byte("Hello, World!"))
+
+		log.Println("Done writing to S3")
+
+		if err != nil {
+			log.Println("Error uploading to S3:", err)
+			return
+		}
+
+		// log.Println("Client connected")
+
+		// // Read messages in a loop and log them
+		// for {
+		// 	var raw map[string]interface{}
+
+		// 	_, bytes, err := ws.ReadMessage()
+		// 	if err != nil {
+		// 		log.Println("Read error:", err)
+		// 		break
+		// 	}
+
+		// 	err = json.Unmarshal(bytes, &raw)
+
+		// 	if err != nil {
+		// 		log.Println("Unmarshal error:", err)
+		// 		break
+		// 	}
+
+		// 	if raw["event"] == "start" {
+		// 		log.Println("Start messaging received, processing...")
+
+		// 		log.Println("Done processing start message")
+		// 	} else if raw["event"] == "media" {
+		// 		log.Println("Media message received, processing...")
+
+		// 		var msg MediaMessage
+		// 		err := json.Unmarshal(bytes, &msg)
+
+		// 		if err != nil {
+		// 			log.Println("Unmarshal error:", err)
+		// 			break
+		// 		}
+
+		// 		data, err := base64.StdEncoding.DecodeString(msg.Media.Payload)
+
+		// 		if err != nil {
+		// 			log.Println("Base64 decode error:", err)
+		// 			break
+		// 		}
+
+		// 		_, err = writer.Write(data)
+
+		// 		if err != nil {
+		// 			log.Println("Write error:", err)
+		// 			break
+		// 		}
+
+		// 		log.Println("Done processing media message")
+		// 	} else if raw["event"] == "stop" {
+		// 		log.Println("Stop message received")
+		// 		log.Println("Done processing stop message")
+
+		// 		w.WriteHeader(http.StatusOK)
+		// 		w.Write([]byte("Goodbye, World!"))
+		// 	}
+		// }
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Goodbye, World!"))
 
 		log.Println("Client disconnected")
 	})
