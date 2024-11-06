@@ -1,11 +1,16 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/go-chi/chi"
@@ -53,7 +58,70 @@ type StopMessage struct {
 }
 
 func main() {
-	sess := session.Must(session.NewSession())
+	twilioAccountSid := os.Getenv("TWILIO_ACCOUNT_SID")
+
+	if twilioAccountSid == "" {
+		log.Fatal("TWILIO_ACCOUNT_SID environment variable is required")
+		return
+	}
+
+	twilioAuthToken := os.Getenv("TWILIO_AUTH_TOKEN")
+
+	if twilioAuthToken == "" {
+		log.Fatal("TWILIO_AUTH_TOKEN environment variable is required")
+		return
+	}
+
+	kaizerVersion := os.Getenv("KAIZER_VERSION")
+
+	if kaizerVersion == "" {
+		log.Fatal("KAIZER_VERSION environment variable is required")
+		return
+	}
+
+	kaizerBucketAccessKeyId := os.Getenv("KAIZER_BUCKET_ACCESS_KEY_ID")
+
+	if kaizerBucketAccessKeyId == "" {
+		log.Fatal("KAIZER_BUCKET_ACCESS_KEY_ID environment variable is required")
+		return
+	}
+
+	kaizerBucketAccessKey := os.Getenv("KAIZER_BUCKET_ACCESS_KEY")
+
+	if kaizerBucketAccessKey == "" {
+		log.Fatal("KAIZER_BUCKET_ACCESS_KEY environment variable is required")
+		return
+	}
+
+	kaizerBucket := os.Getenv("KAIZER_BUCKET_NAME")
+
+	if kaizerBucket == "" {
+		log.Fatal("KAIZER_BUCKET_NAME environment variable is required")
+		return
+	}
+
+	kaizerBucketRegion := os.Getenv("KAIZER_BUCKET_REGION")
+
+	if kaizerBucketRegion == "" {
+		log.Fatal("KAIZER_BUCKET_REGION environment variable is required")
+		return
+	}
+
+	websocketUrl := os.Getenv("KAIZER_WEBSOCKET_URL")
+
+	if websocketUrl == "" {
+		log.Fatal("KAIZER_WEBSOCKET_URL environment variable is required")
+		return
+	}
+
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region: &kaizerBucketRegion,
+		Credentials: credentials.NewStaticCredentials(
+			kaizerBucketAccessKeyId,
+			kaizerBucketAccessKey,
+			"",
+		),
+	}))
 
 	router := chi.NewRouter()
 
@@ -65,14 +133,16 @@ func main() {
 	})
 
 	router.Post("/answer", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("Handling /answer")
-		stream := `
+		log.Printf("Handling /answer, redirecting to %s", websocketUrl)
+
+		stream := fmt.Sprintf(`
 <Response>
+    <Say>Thanks for calling, everything you say here will be recorded.</Say>
     <Connect>
-        <Stream name="Example Audio Stream" url="wss://talktome.cloud/stream" />
+        <Stream name="Example Audio Stream" url="%s" />
     </Connect>
     <Say>Thanks for calling, your log has been saved.</Say>
-</Response>`
+</Response>`, websocketUrl)
 
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
@@ -81,110 +151,94 @@ func main() {
 
 	router.Get("/stream", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("Handling /stream")
-		// Upgrade the HTTP request to a WebSocket connection.
+
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Println("Upgrade error:", err)
 			return
 		}
-		defer ws.Close() // Ensure the connection is closed when the function exits
+		defer ws.Close()
 
 		log.Println("Connection upgraded to WebSocket")
 
 		reader, writer := io.Pipe()
-		// Do we need to close the reader and the writer?
 
-		defer writer.Close()
+		go func() {
+			defer reader.Close()
 
-		log.Println("Creating S3 uploader")
+			key := "test"
 
-		uploader := s3manager.NewUploader(sess)
+			log.Println("Creating S3 uploader")
 
-		bucket := "kaizer"
-		key := "test"
+			uploader := s3manager.NewUploader(sess)
 
-		_, err = uploader.Upload(&s3manager.UploadInput{
-			Body:   reader,
-			Bucket: &bucket,
-			Key:    &key,
-		})
+			_, err = uploader.Upload(&s3manager.UploadInput{
+				Body:   reader,
+				Bucket: &kaizerBucket,
+				Key:    &key,
+			})
 
-		if err != nil {
-			log.Println("Error uploading to S3:", err)
-			return
+			if err != nil {
+				log.Println("Error uploading to S3:", err)
+				return
+			}
+		}()
+
+		for {
+			var raw map[string]interface{}
+
+			_, bytes, err := ws.ReadMessage()
+			if err != nil {
+				log.Println("Read message error:", err)
+				break
+			}
+
+			err = json.Unmarshal(bytes, &raw)
+
+			if err != nil {
+				log.Println("Unmarshal error:", err)
+				break
+			}
+
+			if raw["event"] == "start" {
+				log.Println("Start message received.")
+			} else if raw["event"] == "stop" {
+				log.Println("Stop message received, closing writer...")
+
+				writer.Close()
+
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Processing complete"))
+			} else if raw["event"] == "media" {
+				log.Println("Media message received, processing...")
+
+				var msg MediaMessage
+				err := json.Unmarshal(bytes, &msg)
+
+				if err != nil {
+					log.Println("Unmarshal error:", err)
+					break
+				}
+
+				data, err := base64.StdEncoding.DecodeString(msg.Media.Payload)
+
+				if err != nil {
+					log.Println("Base64 decode error:", err)
+					break
+				}
+
+				_, err = writer.Write(data)
+
+				if err != nil {
+					log.Println("Write error:", err)
+					break
+				}
+
+				log.Println("Done processing media message")
+			} else {
+				log.Println("Unknown message type, received:", raw["event"])
+			}
 		}
-
-		log.Println("Writing to S3")
-
-		_, err = writer.Write([]byte("Hello, World!"))
-
-		log.Println("Done writing to S3")
-
-		if err != nil {
-			log.Println("Error uploading to S3:", err)
-			return
-		}
-
-		// log.Println("Client connected")
-
-		// // Read messages in a loop and log them
-		// for {
-		// 	var raw map[string]interface{}
-
-		// 	_, bytes, err := ws.ReadMessage()
-		// 	if err != nil {
-		// 		log.Println("Read error:", err)
-		// 		break
-		// 	}
-
-		// 	err = json.Unmarshal(bytes, &raw)
-
-		// 	if err != nil {
-		// 		log.Println("Unmarshal error:", err)
-		// 		break
-		// 	}
-
-		// 	if raw["event"] == "start" {
-		// 		log.Println("Start messaging received, processing...")
-
-		// 		log.Println("Done processing start message")
-		// 	} else if raw["event"] == "media" {
-		// 		log.Println("Media message received, processing...")
-
-		// 		var msg MediaMessage
-		// 		err := json.Unmarshal(bytes, &msg)
-
-		// 		if err != nil {
-		// 			log.Println("Unmarshal error:", err)
-		// 			break
-		// 		}
-
-		// 		data, err := base64.StdEncoding.DecodeString(msg.Media.Payload)
-
-		// 		if err != nil {
-		// 			log.Println("Base64 decode error:", err)
-		// 			break
-		// 		}
-
-		// 		_, err = writer.Write(data)
-
-		// 		if err != nil {
-		// 			log.Println("Write error:", err)
-		// 			break
-		// 		}
-
-		// 		log.Println("Done processing media message")
-		// 	} else if raw["event"] == "stop" {
-		// 		log.Println("Stop message received")
-		// 		log.Println("Done processing stop message")
-
-		// 		w.WriteHeader(http.StatusOK)
-		// 		w.Write([]byte("Goodbye, World!"))
-		// 	}
-		// }
-
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Goodbye, World!"))
 
 		log.Println("Client disconnected")
 	})
