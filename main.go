@@ -58,6 +58,13 @@ type StopMessage struct {
 }
 
 func main() {
+	kaizerAdminPhoneNmber := os.Getenv("KAIZER_ADMIN_PHONE_NUMBER")
+
+	if kaizerAdminPhoneNmber == "" {
+		log.Fatal("KAIZER_ADMIN_PHONE_NUMBER environment variable is required")
+		return
+	}
+
 	twilioAccountSid := os.Getenv("TWILIO_ACCOUNT_SID")
 
 	if twilioAccountSid == "" {
@@ -134,6 +141,21 @@ func main() {
 
 	router.Post("/answer", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Handling /answer, redirecting to %s", websocketUrl)
+
+		err := r.ParseForm()
+
+		if err != nil {
+			log.Fatal("Error parsing form data:", err)
+		}
+
+		from := r.Form.Get("From")
+
+		if from != kaizerAdminPhoneNmber {
+			log.Printf("Unauthorized call from %s", from)
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("Unauthorized"))
+			return
+		}
 
 		stream := fmt.Sprintf(`
 <Response>
