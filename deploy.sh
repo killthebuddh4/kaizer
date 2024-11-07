@@ -1,5 +1,7 @@
 #!/bin/sh
 
-aws ecr-public get-login-password --region us-east-1 | DOCKER_HOST=ssh://kaizer docker login --username AWS --password-stdin public.ecr.aws/t2b0u5z3
+source ./env.prod.sh
 
-DOCKER_HOST=ssh://kaizer docker compose up -d
+aws ecr-public get-login-password --region us-east-1 | DOCKER_HOST=${KAIZER_HOST} docker login --username AWS --password-stdin ${KAIZER_DOCKER_REGISTRY}
+
+DOCKER_HOST=${KAIZER_HOST} docker compose up -d

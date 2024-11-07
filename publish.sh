@@ -1,7 +1,9 @@
 #!/bin/sh
 
-docker build --platform linux/amd64 -t public.ecr.aws/t2b0u5z3/kaizer:latest .
+source ./env.prod.sh
 
-aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws/t2b0u5z3
+docker build --platform linux/amd64 -t ${KAIZER_DOCKER_REGISTRY}/kaizer:latest .
 
-docker push public.ecr.aws/t2b0u5z3/kaizer:latest
+aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${KAIZER_DOCKER_REGISTRY}
+
+docker push ${KAIZER_DOCKER_REGISTRY}/kaizer:latest
