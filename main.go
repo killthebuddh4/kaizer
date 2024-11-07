@@ -52,6 +52,10 @@ func main() {
 
 	router.Use(middleware.Logger)
 
+	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/index.html")
+	})
+
 	router.Get("/version", func(w http.ResponseWriter, r *http.Request) {
 		message := "Thump. Thump thump. Thump. Version " + kaizerEnv.KaizerVersion
 		w.WriteHeader(http.StatusOK)

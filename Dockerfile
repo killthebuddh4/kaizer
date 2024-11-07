@@ -16,6 +16,8 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 COPY --from=build /main /main
 
+COPY --from=build /build/web /web
+
 EXPOSE 80
 
 # Run
