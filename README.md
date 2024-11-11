@@ -9,17 +9,27 @@ I like to think out loud. I prefer to walk and talk rather than sit at a desk an
 - [motivation](#motivation)
 - [contents](#contents)
 - [kaizer?](#kaizer)
-- [Roadmap](#roadmap)
+- [features](#features)
+- [down the road](#down-the-road)
 
 ## kaizer?
 
 Kaizer is my son's name. I like it, it's easy to say, and easy to remember.
 
-## Roadmap
+## features
 
-The very first step is to build a zero-friction tool for streaming audio to a programmable backend. At the moment, the minimum-friction way to record audio files on an iPhone is by wiring the action button to the voice memo app. The obvious downside is that there's no way (that I know of) to programmatically access the recordings. I haven't found an app nor a hardware device that basically just records audio and streams it to a user-defined backend. 
+Right now `kaizer` is a single-user, single-file web server which integrates with the Twilio API in order to stream inbound calls' audio into an S3 bucket.
 
-My current plan is to write a go server that uses the Twilio API/SDK to basically pipe received calls' audio into S3.
+## down the road
 
-Update: I found an app called [Larix Broadcaster](https://softvelum.com/larix/) that looks like it might do some of what I want. I haven't tested it yet but I may be able to set up a WebRTC stream from my phone's microphone to my own WebRTC server. If I can wire the app to the action button, it might be good enough for now.
+Development will progress according to a pair of high-level goals and considerations:
 
+1. From a user's perspective, I personally need an MVP, a frictionless way to stream audio to a programmable backend, immediately.
+2. From a developer/hobbyist perspective, I'm personally enamored by the idea of very simple online services made profitable through high-quality engineering.
+3. From a technologist's perspective, audio interfaces paired with language models are going to completely reshape the world, and I want to participate. It sounds silly to say, but I believe this is still an underappreciated idea. How much of how we all live day in and day out is shaped by the constraint of having to sit behind a desk?
+
+For the most part (1) is satisfied. To satisfy (2) I'll need to implement basic multi-user functionality, integrate with Stripe, and design and implement a minimal feature set and frontend. The feature set is going to be something like
+
+1. A download/export API
+2. A configureable webhooks + streaming API
+3. A configureable multi-backend-phone-number system

@@ -35,15 +35,15 @@ func main() {
 		return
 	}
 
-	if kaizerEnv.GoEnv != "production" {
+	if kaizerEnv.Env != "production" {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
 	sess := session.Must(session.NewSession(&aws.Config{
-		Region: &kaizerEnv.KaizerBucketRegion,
+		Region: &kaizerEnv.BucketRegion,
 		Credentials: credentials.NewStaticCredentials(
-			kaizerEnv.KaizerBucketAccessKeyId,
-			kaizerEnv.KaizerBucketAccessKey,
+			kaizerEnv.BucketAccessKeyId,
+			kaizerEnv.BucketAccessKey,
 			"",
 		),
 	}))
@@ -57,7 +57,7 @@ func main() {
 	})
 
 	router.Get("/version", func(w http.ResponseWriter, r *http.Request) {
-		message := "Thump. Thump thump. Thump. Version " + kaizerEnv.KaizerVersion
+		message := "Thump. Thump thump. Thump. Version " + kaizerEnv.Version
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(message))
 	})
@@ -77,7 +77,7 @@ func main() {
 			return
 		}
 
-		command := getStartStreamCommand(kaizerEnv.KaizerWebsocketUrl)
+		command := getStartStreamCommand(kaizerEnv.WebsocketUrl)
 
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
@@ -109,13 +109,13 @@ func main() {
 			defer reader.Close()
 
 			// TODO WE HAVE TO CHANGE THIS FOR MULTI-USER
-			key := fmt.Sprintf("%s/%s", kaizerEnv.KaizerAdminPhoneNmber, getTimestamp())
+			key := fmt.Sprintf("%s/%s", kaizerEnv.AdminPhoneNumber, getTimestamp())
 
 			uploader := s3manager.NewUploader(sess)
 
 			_, err = uploader.Upload(&s3manager.UploadInput{
 				Body:   reader,
-				Bucket: &kaizerEnv.KaizerBucketName,
+				Bucket: &kaizerEnv.BucketName,
 				Key:    &key,
 			})
 
@@ -247,7 +247,7 @@ func isRequestFromAdmin(r *http.Request) bool {
 
 	slog.Debug("Request From:" + from)
 
-	return from == kaizerEnv.KaizerAdminPhoneNmber
+	return from == kaizerEnv.AdminPhoneNumber
 }
 
 func getTimestamp() string {
@@ -300,50 +300,50 @@ type StopMessage struct {
 }
 
 type KaizerEnv struct {
-	GoEnv                   string
-	KaizerAdminPhoneNmber   string
-	TwilioAccountSid        string
-	TwilioAuthToken         string
-	KaizerVersion           string
-	KaizerBucketAccessKey   string
-	KaizerBucketAccessKeyId string
-	KaizerBucketName        string
-	KaizerBucketRegion      string
-	KaizerWebsocketUrl      string
+	Env               string
+	AdminPhoneNumber  string
+	TwilioAccountSid  string
+	TwilioAuthToken   string
+	Version           string
+	BucketAccessKey   string
+	BucketAccessKeyId string
+	BucketName        string
+	BucketRegion      string
+	WebsocketUrl      string
 }
 
 func getKaizerEnv() (KaizerEnv, error) {
-	kaizerAdminPhoneNmber := os.Getenv("KAIZER_ADMIN_PHONE_NUMBER")
+	adminPhoneNumber := os.Getenv("KAIZER_ADMIN_PHONE_NUMBER")
 
-	if kaizerAdminPhoneNmber == "" {
+	if adminPhoneNumber == "" {
 		log.Fatal("KAIZER_ADMIN_PHONE_NUMBER environment variable is required")
 		return KaizerEnv{}, fmt.Errorf("KAIZER_ADMIN_PHONE_NUMBER environment variable is required")
 	}
 
-	twilioAccountSid := os.Getenv("TWILIO_ACCOUNT_SID")
+	twilioAccountSid := os.Getenv("KAIZER_TWILIO_ACCOUNT_SID")
 
 	if twilioAccountSid == "" {
-		log.Fatal("TWILIO_ACCOUNT_SID environment variable is required")
-		return KaizerEnv{}, fmt.Errorf("TWILIO_ACCOUNT_SID environment variable is required")
+		log.Fatal("KAIZER_TWILIO_ACCOUNT_SID environment variable is required")
+		return KaizerEnv{}, fmt.Errorf("KAIZER_TWILIO_ACCOUNT_SID environment variable is required")
 	}
 
-	twilioAuthToken := os.Getenv("TWILIO_AUTH_TOKEN")
+	twilioAuthToken := os.Getenv("KAIZER_TWILIO_AUTH_TOKEN")
 
 	if twilioAuthToken == "" {
-		log.Fatal("TWILIO_AUTH_TOKEN environment variable is required")
-		return KaizerEnv{}, fmt.Errorf("TWILIO_AUTH_TOKEN environment variable is required")
+		log.Fatal("KAIZER_TWILIO_AUTH_TOKEN environment variable is required")
+		return KaizerEnv{}, fmt.Errorf("KAIZER_TWILIO_AUTH_TOKEN environment variable is required")
 	}
 
-	kaizerVersion := os.Getenv("KAIZER_VERSION")
+	version := os.Getenv("KAIZER_GIT_COMMIT_SHA")
 
-	if kaizerVersion == "" {
-		log.Fatal("KAIZER_VERSION environment variable is required")
-		return KaizerEnv{}, fmt.Errorf("KAIZER_VERSION environment variable is required")
+	if version == "" {
+		log.Fatal("KAIZER_GIT_COMMIT_SHA environment variable is required")
+		return KaizerEnv{}, fmt.Errorf("KAIZER_GIT_COMMIT_SHA environment variable is required")
 	}
 
-	kaizerBucketAccessKeyId := os.Getenv("KAIZER_BUCKET_ACCESS_KEY_ID")
+	bucketAccessKeyId := os.Getenv("KAIZER_BUCKET_ACCESS_KEY_ID")
 
-	if kaizerBucketAccessKeyId == "" {
+	if bucketAccessKeyId == "" {
 		log.Fatal("KAIZER_BUCKET_ACCESS_KEY_ID environment variable is required")
 		return KaizerEnv{}, fmt.Errorf("KAIZER_BUCKET_ACCESS_KEY_ID environment variable is required")
 	}
@@ -355,16 +355,16 @@ func getKaizerEnv() (KaizerEnv, error) {
 		return KaizerEnv{}, fmt.Errorf("KAIZER_BUCKET_ACCESS_KEY environment variable is required")
 	}
 
-	kaizerBucket := os.Getenv("KAIZER_BUCKET_NAME")
+	bucketName := os.Getenv("KAIZER_BUCKET_NAME")
 
-	if kaizerBucket == "" {
+	if bucketName == "" {
 		log.Fatal("KAIZER_BUCKET_NAME environment variable is required")
 		return KaizerEnv{}, fmt.Errorf("KAIZER_BUCKET_NAME environment variable is required")
 	}
 
-	kaizerBucketRegion := os.Getenv("KAIZER_BUCKET_REGION")
+	bucketRegion := os.Getenv("KAIZER_BUCKET_REGION")
 
-	if kaizerBucketRegion == "" {
+	if bucketRegion == "" {
 		log.Fatal("KAIZER_BUCKET_REGION environment variable is required")
 		return KaizerEnv{}, fmt.Errorf("KAIZER_BUCKET_REGION environment variable is required")
 	}
@@ -376,23 +376,23 @@ func getKaizerEnv() (KaizerEnv, error) {
 		return KaizerEnv{}, fmt.Errorf("KAIZER_WEBSOCKET_URL environment variable is required")
 	}
 
-	goEnv := os.Getenv("GO_ENV")
+	env := os.Getenv("KAIZER_GO_ENV")
 
-	if goEnv == "" {
-		log.Fatal("GO_ENV environment variable is required")
-		return KaizerEnv{}, fmt.Errorf("GO_ENV environment variable is required")
+	if env == "" {
+		log.Fatal("KAIZER_GO_ENV environment variable is required")
+		return KaizerEnv{}, fmt.Errorf("KAIZER_GO_ENV environment variable is required")
 	}
 
 	return KaizerEnv{
-		GoEnv:                   goEnv,
-		KaizerAdminPhoneNmber:   kaizerAdminPhoneNmber,
-		TwilioAccountSid:        twilioAccountSid,
-		TwilioAuthToken:         twilioAuthToken,
-		KaizerVersion:           kaizerVersion,
-		KaizerBucketAccessKeyId: kaizerBucketAccessKeyId,
-		KaizerBucketAccessKey:   kaizerBucketAccessKey,
-		KaizerBucketName:        kaizerBucket,
-		KaizerBucketRegion:      kaizerBucketRegion,
-		KaizerWebsocketUrl:      websocketUrl,
+		Env:               env,
+		AdminPhoneNumber:  adminPhoneNumber,
+		TwilioAccountSid:  twilioAccountSid,
+		TwilioAuthToken:   twilioAuthToken,
+		Version:           version,
+		BucketAccessKeyId: bucketAccessKeyId,
+		BucketAccessKey:   kaizerBucketAccessKey,
+		BucketName:        bucketName,
+		BucketRegion:      bucketRegion,
+		WebsocketUrl:      websocketUrl,
 	}, nil
 }
